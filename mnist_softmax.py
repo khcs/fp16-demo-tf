@@ -22,8 +22,8 @@ def main(_):
 
   # Create the model
   x = tf.placeholder(tf.float32, [None, 784])
-  W = tf.Variable(tf.zeros([784, 10]))
-  b = tf.Variable(tf.zeros([10]))
+  W = tf.Variable(tf.zeros([784, FLAGS.num_units]))
+  b = tf.Variable(tf.zeros([FLAGS.num_units]))
   y = tf.matmul(x, W) + b
 
   # Define loss and optimizer
@@ -65,5 +65,11 @@ if __name__ == '__main__':
       type=str,
       default='/tmp/tensorflow/mnist/input_data',
       help='Directory for storing input data')
+  parser.add_argument(
+      '--num_units',
+      type=int,
+      default=10,
+      help='Number of output units in fully-connected layer'
+  )
   FLAGS, unparsed = parser.parse_known_args()
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
