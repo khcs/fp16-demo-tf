@@ -41,60 +41,62 @@ def gradients_with_loss_scaling(loss, variables, loss_scale):
             for grad in tf.gradients(loss * loss_scale, variables)]
 
 
+def create_simple_model(nbatch, nin, nout, dtype):
+  data = tf.placeholder(dtype, shape=(None, 784))
+  W1 = tf.get_variable('w1', (784, FLAGS.num_hunits), dtype)
+  b1 = tf.get_variable('b1', (FLAGS.num_hunits), dtype, initializer=tf.zeros_initializer())
+  z = tf.nn.relu(tf.matmul(data, W1) + b1)
+  W2 = tf.get_variable('w2', (FLAGS.num_hunits, 10), dtype)
+  b2 = tf.get_variable('b2', (10), dtype, initializer=tf.zeros_initializer())
+  logits = tf.matmul(z, W2) + b2
+  target = tf.placeholder(tf.int64, shape=(None))
+
+  loss = tf.losses.sparse_softmax_cross_entropy(target, tf.cast(logits, tf.float32))
+  return data, target, logits, loss
+
+
 def main(_):
-  # Import data
+  nbatch = 64
+  nin = 100
+  nout = 10
+  learning_rate = 0.1
+  momentum = 0.9
+  loss_scale = FLAGS.loss_scale
+  dtype = tf.float16
+  tf.set_random_seed(1234)
+
+  # Create training graph
+  with tf.device('/gpu:0'), \
+       tf.variable_scope(
+         # Note: This forces trainable variables to be stored as float32
+         'fp32_storage', custom_getter=float32_variable_storage_getter):
+    data, target, logits, loss = create_simple_model(nbatch, nin, nout, dtype)
+    variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
+    # Note: Loss scaling can improve numerical stability for fp16 training
+    grads = gradients_with_loss_scaling(loss, variables, loss_scale)
+    optimizer = tf.train.MomentumOptimizer(learning_rate, momentum)
+    training_step_op = optimizer.apply_gradients(zip(grads, variables))
+    init_op = tf.global_variables_initializer()
+
   mnist = input_data.read_data_sets(FLAGS.data_dir)
 
-  x = tf.placeholder(tf.float16, [None, 784]) #### FP16 ####
-  with tf.variable_scope('fp32_vars', custom_getter=float32_variable_storage_getter):
-    # Create the model
-    W1 = tf.Variable(tf.truncated_normal([784, FLAGS.num_hunits], dtype=tf.float16)) #### FP16 ####
-    b1 = tf.Variable(tf.zeros([FLAGS.num_hunits], dtype=tf.float16)) #### FP16 ####
-    z = tf.nn.relu(tf.matmul(x, W1) + b1)
-    W2 = tf.Variable(tf.truncated_normal([FLAGS.num_hunits, 10], dtype=tf.float16))
-    b2 = tf.Variable(tf.zeros([10], dtype=tf.float16))
+  sess = tf.Session()
+  sess.run(init_op)
 
-    y = tf.matmul(z, W2) + b2
-
-  y = tf.cast(y, tf.float32)
-
-  # Define loss and optimize
-  y_ = tf.placeholder(tf.int64, [None])
-
-  # The raw formulation of cross-entropy,
-  #
-  #   tf.reduce_mean(-tf.reduce_sum(y_ * tf.log(tf.nn.softmax(y)),
-  #                                 reduction_indices=[1]))
-  #
-  # can be numerically unstable.
-  #
-  # So here we use tf.losses.sparse_softmax_cross_entropy on the raw
-  # outputs of 'y', and then average across the batch.
-
-  cross_entropy = tf.losses.sparse_softmax_cross_entropy(labels=y_, logits=y)
-  #train_step = tf.train.GradientDescentOptimizer(0.5).minimize(cross_entropy)
-
-  loss_scale = FLAGS.loss_scale
-  variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
-  grads = gradients_with_loss_scaling(cross_entropy, variables, loss_scale)
-  grads, _ = tf.clip_by_global_norm(grads, 5.0)
-  optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.5)
-  train_step = optimizer.apply_gradients(zip(grads, variables))
-
-  sess = tf.InteractiveSession()
-  tf.global_variables_initializer().run()
-  # Train
-  for _ in range(6000):
+  for step in range(6000):
     batch_xs, batch_ys = mnist.train.next_batch(100)
-    sess.run(train_step, feed_dict={x: batch_xs, y_: batch_ys})
+    np_loss, _ = sess.run([loss, training_step_op],
+                          feed_dict={data: batch_xs, target: batch_ys})
+    if step % 1000 == 0:
+      print('%4i %6f' % (step + 1, np_loss))
 
   # Test trained model
-  correct_prediction = tf.equal(tf.argmax(y, 1), y_)
-  accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float16)) #### FP16 ####
+  correct_prediction = tf.equal(tf.argmax(logits, 1), target)
+  accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float16))
   print(sess.run(
       accuracy, feed_dict={
-          x: mnist.test.images,
-          y_: mnist.test.labels
+          data: mnist.test.images,
+          target: mnist.test.labels
       }))
 
 
