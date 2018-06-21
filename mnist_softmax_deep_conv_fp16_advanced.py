@@ -15,10 +15,6 @@ import tensorflow as tf
 
 FLAGS = None
 
-
-from pdb import set_trace as bp
-
-
 def float32_variable_storage_getter(getter, name, shape=None, dtype=None,
                                     initializer=None, regularizer=None,
                                     trainable=True,
