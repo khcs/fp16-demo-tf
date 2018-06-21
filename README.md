@@ -23,3 +23,7 @@ Example:
 ```
 nvprof python mnist_softmax_deep_conv_fp16_advanced.py
 ```
+## Notes about loss-scaling
+The "default" loss-scaling value of 128 works for all the examples here.
+However, in a case it doesn't work, it's advised to choose a large value and gradually decrease it until sucessful.
+[apex](https://github.com/NVIDIA/apex) is a easy-to-use mixed-precision training utilities for PyTorch, and it's [loss-scaler](https://github.com/NVIDIA/apex/blob/master/apex/fp16_utils/loss_scaler.py) does that.
